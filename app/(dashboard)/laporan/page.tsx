@@ -2,6 +2,7 @@
 import { getLaporanHarian, getLaporanMingguan } from "@/lib/actions/laporan";
 import WeeklyChart from "@/components/laporan/WeeklyChart";
 import TransactionList from "@/components/laporan/TransactionList";
+import ExportButtons from "@/components/laporan/ExportButtons";
 
 export default async function LaporanPage() {
   const [laporan, mingguan] = await Promise.all([
@@ -28,7 +29,6 @@ export default async function LaporanPage() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3 mb-4">
-        {/* Total Penjualan */}
         <div className="col-span-2 bg-emerald-600 rounded-xl p-5">
           <p className="text-xs font-semibold text-emerald-200 mb-1">
             Total Penjualan Hari Ini
@@ -58,7 +58,6 @@ export default async function LaporanPage() {
           </div>
         </div>
 
-        {/* Transaksi */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-400 mb-1">Transaksi</p>
           <p className="text-2xl font-bold text-gray-800">
@@ -69,7 +68,6 @@ export default async function LaporanPage() {
           </p>
         </div>
 
-        {/* Produk Terlaris */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-400 mb-1">Terlaris</p>
           <p className="text-sm font-bold text-gray-800 truncate">
@@ -88,9 +86,12 @@ export default async function LaporanPage() {
         <WeeklyChart data={mingguan} />
       </div>
 
+      {/* Export Buttons — hanya tampil jika ada data laporan */}
+      <ExportButtons laporan={laporan} />
+
       {/* Produk Terlaris */}
       {laporan?.produkTerlaris && laporan.produkTerlaris.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 mt-4">
           <p className="text-sm font-bold text-gray-800 mb-3">
             Top Produk Hari Ini
           </p>
@@ -125,7 +126,7 @@ export default async function LaporanPage() {
       )}
 
       {/* Daftar Transaksi */}
-      <div>
+      <div className="mt-4">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-sm font-bold text-gray-800">
             Transaksi Hari Ini
