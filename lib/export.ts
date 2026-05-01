@@ -1,8 +1,9 @@
 // lib/export.ts
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+// --- TYPES ---
 type TransactionItem = {
   id: string;
   product_name: string;
@@ -29,7 +30,7 @@ type LaporanData = {
   transactions: Transaction[];
 };
 
-// Format tanggal Indonesia
+// --- HELPERS ---
 function formatTanggal(iso: string) {
   return new Date(iso).toLocaleDateString("id-ID", {
     day: "numeric",
@@ -49,119 +50,182 @@ function formatRupiah(amount: number) {
   return `Rp ${amount.toLocaleString("id-ID")}`;
 }
 
-// ===== EXPORT EXCEL =====
-export function exportToExcel(laporan: LaporanData) {
-  const wb = XLSX.utils.book_new();
+// Warna Emerald 600 untuk Branding KasirKu
+const EMERALD_COLOR = "FF059669"; // Format ARGB
+
+// ===== EXPORT EXCEL (ExcelJS) =====
+export async function exportToExcel(laporan: LaporanData) {
+  const workbook = new ExcelJS.Workbook();
   const tanggal = formatTanggal(laporan.tanggal);
 
-  // --- Sheet 1: Ringkasan ---
-  const ringkasanData = [
-    ["LAPORAN PENJUALAN HARIAN"],
-    ["Tanggal:", tanggal],
-    [""],
-    ["RINGKASAN"],
-    ["Total Penjualan", formatRupiah(laporan.totalPenjualan)],
-    ["Jumlah Transaksi", laporan.jumlahTransaksi],
-    ["Total Tunai", formatRupiah(laporan.totalTunai)],
-    ["Total Utang", formatRupiah(laporan.totalUtang)],
-    [""],
-    ["TOP PRODUK TERLARIS"],
-    ["No", "Nama Produk", "Qty Terjual", "Total"],
-    ...laporan.produkTerlaris.map((p, i) => [
-      i + 1,
-      p.name,
-      p.qty,
-      formatRupiah(p.total),
-    ]),
+  // --- SHEET 1: RINGKASAN ---
+  const sheet1 = workbook.addWorksheet("Ringkasan");
+  sheet1.getColumn(1).width = 25;
+  sheet1.getColumn(2).width = 25;
+
+  // Header Title
+  sheet1.mergeCells("A1:B1");
+  const titleCell = sheet1.getCell("A1");
+  titleCell.value = "LAPORAN PENJUALAN HARIAN";
+  titleCell.font = {
+    name: "Arial",
+    size: 14,
+    bold: true,
+    color: { argb: EMERALD_COLOR },
+  };
+  titleCell.alignment = { horizontal: "center" };
+
+  sheet1.addRow([`Tanggal:`, tanggal]);
+  sheet1.addRow([]);
+
+  // Ringkasan Section
+  const ringkasanHeader = sheet1.addRow(["RINGKASAN"]);
+  ringkasanHeader.font = { bold: true };
+
+  const addSummaryRow = (
+    label: string,
+    value: any,
+    isCurrency: boolean = true,
+  ) => {
+    const row = sheet1.addRow([label, value]);
+    if (isCurrency) {
+      row.getCell(2).numFmt = '"Rp "#,##0';
+    }
+  };
+
+  addSummaryRow("Total Penjualan", laporan.totalPenjualan);
+  addSummaryRow("Jumlah Transaksi", laporan.jumlahTransaksi, false);
+  addSummaryRow("Total Tunai", laporan.totalTunai);
+  addSummaryRow("Total Utang", laporan.totalUtang);
+
+  sheet1.addRow([]);
+
+  // Top Produk Table
+  sheet1.addRow(["TOP PRODUK TERLARIS"]).font = { bold: true };
+  const prodHeader = sheet1.addRow(["No", "Nama Produk", "Qty", "Total"]);
+
+  // Style Table Header
+  prodHeader.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: EMERALD_COLOR },
+    };
+    cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+    cell.border = {
+      top: { style: "thin" },
+      left: { style: "thin" },
+      bottom: { style: "thin" },
+      right: { style: "thin" },
+    };
+  });
+
+  laporan.produkTerlaris.forEach((p, i) => {
+    const row = sheet1.addRow([i + 1, p.name, p.qty, p.total]);
+    row.getCell(4).numFmt = '"Rp "#,##0';
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+    });
+  });
+
+  // --- SHEET 2: DETAIL TRANSAKSI ---
+  const sheet2 = workbook.addWorksheet("Detail Transaksi");
+  sheet2.columns = [
+    { header: "No", key: "no", width: 5 },
+    { header: "Waktu", key: "waktu", width: 12 },
+    { header: "Pelanggan", key: "cust", width: 20 },
+    { header: "Metode", key: "metode", width: 12 },
+    { header: "Item (Qty)", key: "item", width: 50 },
+    { header: "Total", key: "total", width: 20 },
   ];
 
-  const wsRingkasan = XLSX.utils.aoa_to_sheet(ringkasanData);
-
-  // Style lebar kolom
-  wsRingkasan["!cols"] = [{ wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 20 }];
-
-  XLSX.utils.book_append_sheet(wb, wsRingkasan, "Ringkasan");
-
-  // --- Sheet 2: Detail Transaksi ---
-  const transaksiRows: any[][] = [
-    ["DETAIL TRANSAKSI"],
-    ["Tanggal:", tanggal],
-    [""],
-    ["No", "Waktu", "Pelanggan", "Metode", "Item", "Total"],
-  ];
+  // Header Style
+  const trxHeaderRow = sheet2.getRow(1);
+  trxHeaderRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  trxHeaderRow.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: EMERALD_COLOR },
+    };
+  });
 
   laporan.transactions.forEach((trx, i) => {
     const itemList =
       trx.transaction_items
         ?.map((item) => `${item.product_name} (${item.quantity}x)`)
         .join(", ") ?? "-";
-
-    transaksiRows.push([
-      i + 1,
-      formatWaktu(trx.created_at),
-      trx.customers?.name ?? "Umum",
-      trx.payment_method === "tunai" ? "Tunai" : "Utang",
-      itemList,
-      formatRupiah(trx.total_price),
-    ]);
+    const row = sheet2.addRow({
+      no: i + 1,
+      waktu: formatWaktu(trx.created_at),
+      cust: trx.customers?.name ?? "Umum",
+      metode: trx.payment_method === "tunai" ? "Tunai" : "Utang",
+      item: itemList,
+      total: trx.total_price,
+    });
+    row.getCell("total").numFmt = '"Rp "#,##0';
   });
 
-  const wsTransaksi = XLSX.utils.aoa_to_sheet(transaksiRows);
-  wsTransaksi["!cols"] = [
-    { wch: 5 },
-    { wch: 10 },
-    { wch: 20 },
-    { wch: 10 },
-    { wch: 50 },
-    { wch: 20 },
+  // --- SHEET 3: DETAIL ITEM ---
+  const sheet3 = workbook.addWorksheet("Detail Item");
+  sheet3.columns = [
+    { header: "Waktu", key: "waktu", width: 12 },
+    { header: "Produk", key: "produk", width: 30 },
+    { header: "Qty", key: "qty", width: 10 },
+    { header: "Harga Satuan", key: "harga", width: 20 },
+    { header: "Subtotal", key: "subtotal", width: 20 },
   ];
 
-  XLSX.utils.book_append_sheet(wb, wsTransaksi, "Detail Transaksi");
-
-  // --- Sheet 3: Per Item ---
-  const itemRows: any[][] = [
-    ["DETAIL PER ITEM"],
-    ["Tanggal:", tanggal],
-    [""],
-    ["Waktu", "Produk", "Qty", "Harga Satuan", "Subtotal"],
-  ];
+  const itemHeaderRow = sheet3.getRow(1);
+  itemHeaderRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  itemHeaderRow.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: EMERALD_COLOR },
+    };
+  });
 
   laporan.transactions.forEach((trx) => {
     trx.transaction_items?.forEach((item) => {
-      itemRows.push([
-        formatWaktu(trx.created_at),
-        item.product_name,
-        item.quantity,
-        formatRupiah(item.subtotal / item.quantity),
-        formatRupiah(item.subtotal),
-      ]);
+      const row = sheet3.addRow({
+        waktu: formatWaktu(trx.created_at),
+        produk: item.product_name,
+        qty: item.quantity,
+        harga: item.subtotal / item.quantity,
+        subtotal: item.subtotal,
+      });
+      row.getCell("harga").numFmt = '"Rp "#,##0';
+      row.getCell("subtotal").numFmt = '"Rp "#,##0';
     });
   });
 
-  const wsItem = XLSX.utils.aoa_to_sheet(itemRows);
-  wsItem["!cols"] = [
-    { wch: 10 },
-    { wch: 30 },
-    { wch: 8 },
-    { wch: 20 },
-    { wch: 20 },
-  ];
-
-  XLSX.utils.book_append_sheet(wb, wsItem, "Detail Item");
-
-  // Download
-  const fileName = `Laporan_KasirKu_${tanggal.replace(/ /g, "_")}.xlsx`;
-  XLSX.writeFile(wb, fileName);
+  // --- DOWNLOAD LOGIC ---
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Laporan_KasirKu_${tanggal.replace(/ /g, "_")}.xlsx`;
+  a.click();
+  window.URL.revokeObjectURL(url);
 }
 
-// ===== EXPORT PDF =====
+// ===== EXPORT PDF (jsPDF) =====
 export function exportToPDF(laporan: LaporanData) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const tanggal = formatTanggal(laporan.tanggal);
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // Header
-  doc.setFillColor(5, 150, 105); // emerald-600
+  // Header Emerald
+  doc.setFillColor(5, 150, 105);
   doc.rect(0, 0, pageWidth, 35, "F");
 
   doc.setTextColor(255, 255, 255);
@@ -174,45 +238,29 @@ export function exportToPDF(laporan: LaporanData) {
   doc.text("Laporan Penjualan Harian", 14, 23);
   doc.text(tanggal, 14, 30);
 
-  // Reset warna teks
   doc.setTextColor(30, 30, 30);
 
-  // Ringkasan cards
-  let y = 45;
-  doc.setFontSize(13);
-  doc.setFont("helvetica", "bold");
-  doc.text("Ringkasan", 14, y);
-  y += 6;
-
-  const summaryData = [
-    ["Total Penjualan", formatRupiah(laporan.totalPenjualan)],
-    ["Jumlah Transaksi", `${laporan.jumlahTransaksi} transaksi`],
-    ["Total Tunai", formatRupiah(laporan.totalTunai)],
-    ["Total Utang", formatRupiah(laporan.totalUtang)],
-  ];
-
+  // Summary Table
   autoTable(doc, {
-    startY: y,
-    head: [],
-    body: summaryData,
+    startY: 45,
+    body: [
+      ["Total Penjualan", formatRupiah(laporan.totalPenjualan)],
+      ["Jumlah Transaksi", `${laporan.jumlahTransaksi} transaksi`],
+      ["Total Tunai", formatRupiah(laporan.totalTunai)],
+      ["Total Utang", formatRupiah(laporan.totalUtang)],
+    ],
     theme: "plain",
-    styles: { fontSize: 10, cellPadding: 3 },
-    columnStyles: {
-      0: { fontStyle: "normal", textColor: [100, 100, 100], cellWidth: 60 },
-      1: { fontStyle: "bold", textColor: [5, 150, 105] },
-    },
-    margin: { left: 14, right: 14 },
+    styles: { fontSize: 10 },
+    columnStyles: { 1: { fontStyle: "bold", textColor: [5, 150, 105] } },
   });
 
-  // Top produk terlaris
-  y = (doc as any).lastAutoTable.finalY + 10;
+  // Top Produk Table
   doc.setFontSize(13);
   doc.setFont("helvetica", "bold");
-  doc.text("Top Produk Terlaris", 14, y);
-  y += 4;
+  doc.text("Top Produk Terlaris", 14, (doc as any).lastAutoTable.finalY + 10);
 
   autoTable(doc, {
-    startY: y,
+    startY: (doc as any).lastAutoTable.finalY + 15,
     head: [["No", "Produk", "Qty", "Total"]],
     body: laporan.produkTerlaris.map((p, i) => [
       i + 1,
@@ -220,32 +268,15 @@ export function exportToPDF(laporan: LaporanData) {
       `${p.qty}x`,
       formatRupiah(p.total),
     ]),
+    headStyles: { fillColor: [5, 150, 105] },
     theme: "striped",
-    headStyles: {
-      fillColor: [5, 150, 105],
-      textColor: 255,
-      fontStyle: "bold",
-      fontSize: 10,
-    },
-    bodyStyles: { fontSize: 9 },
-    columnStyles: {
-      0: { cellWidth: 12 },
-      1: { cellWidth: 80 },
-      2: { cellWidth: 20, halign: "center" },
-      3: { cellWidth: 40, halign: "right" },
-    },
-    margin: { left: 14, right: 14 },
   });
 
-  // Detail transaksi
-  y = (doc as any).lastAutoTable.finalY + 10;
-  doc.setFontSize(13);
-  doc.setFont("helvetica", "bold");
-  doc.text("Detail Transaksi", 14, y);
-  y += 4;
+  // Transactions Table
+  doc.text("Detail Transaksi", 14, (doc as any).lastAutoTable.finalY + 10);
 
   autoTable(doc, {
-    startY: y,
+    startY: (doc as any).lastAutoTable.finalY + 15,
     head: [["Waktu", "Pelanggan", "Metode", "Total"]],
     body: laporan.transactions.map((trx) => [
       formatWaktu(trx.created_at),
@@ -253,21 +284,8 @@ export function exportToPDF(laporan: LaporanData) {
       trx.payment_method === "tunai" ? "Tunai" : "Utang",
       formatRupiah(trx.total_price),
     ]),
+    headStyles: { fillColor: [5, 150, 105] },
     theme: "striped",
-    headStyles: {
-      fillColor: [5, 150, 105],
-      textColor: 255,
-      fontStyle: "bold",
-      fontSize: 10,
-    },
-    bodyStyles: { fontSize: 9 },
-    columnStyles: {
-      0: { cellWidth: 22 },
-      1: { cellWidth: 60 },
-      2: { cellWidth: 25, halign: "center" },
-      3: { cellWidth: 40, halign: "right" },
-    },
-    margin: { left: 14, right: 14 },
   });
 
   // Footer
@@ -276,15 +294,10 @@ export function exportToPDF(laporan: LaporanData) {
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    doc.text(
-      `KasirKu — Digenerate otomatis • Halaman ${i} dari ${pageCount}`,
-      pageWidth / 2,
-      doc.internal.pageSize.getHeight() - 8,
-      { align: "center" },
-    );
+    doc.text(`KasirKu — Halaman ${i} dari ${pageCount}`, pageWidth / 2, 285, {
+      align: "center",
+    });
   }
 
-  // Download
-  const fileName = `Laporan_KasirKu_${tanggal.replace(/ /g, "_")}.pdf`;
-  doc.save(fileName);
+  doc.save(`Laporan_KasirKu_${tanggal.replace(/ /g, "_")}.pdf`);
 }
