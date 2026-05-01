@@ -32,7 +32,7 @@ export default function ExportButtons({ laporan }: Props) {
     setLoadingPDF(false);
   }
 
-  if (!laporan || laporan.jumlahTransaksi === 0) return null;
+  const hasData = laporan && laporan.jumlahTransaksi > 0;
 
   return (
     <div className="flex gap-3 mb-4">
