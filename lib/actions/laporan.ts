@@ -4,7 +4,43 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export async function getLaporanHarian(tanggal?: string) {
+type Periode = "harian" | "mingguan" | "bulanan";
+
+function getRangeFromPeriode(periode: Periode, tanggal?: string) {
+  const target = tanggal ? new Date(tanggal) : new Date();
+
+  if (periode === "harian") {
+    const start = new Date(target);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(target);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (periode === "mingguan") {
+    const start = new Date(target);
+    const day = start.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // Senin sebagai hari pertama
+    start.setDate(start.getDate() + diff);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  // bulanan
+  const start = new Date(target.getFullYear(), target.getMonth(), 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(target.getFullYear(), target.getMonth() + 1, 0);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+export async function getLaporan(
+  periode: Periode = "harian",
+  tanggal?: string,
+) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -12,26 +48,18 @@ export async function getLaporanHarian(tanggal?: string) {
   if (!user) return null;
 
   const admin = createAdminClient();
+  const { start, end } = getRangeFromPeriode(periode, tanggal);
 
-  // Tentukan range tanggal
-  const targetDate = tanggal ? new Date(tanggal) : new Date();
-  const startOfDay = new Date(targetDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(targetDate);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  // Ambil semua transaksi hari ini
   const { data: transactions } = await admin
     .from("transactions")
-    .select("*, transaction_items(*, products(name)), customers(name)")
+    .select("*, transaction_items(*), customers(name)")
     .eq("user_id", user.id)
-    .gte("created_at", startOfDay.toISOString())
-    .lte("created_at", endOfDay.toISOString())
+    .gte("created_at", start.toISOString())
+    .lte("created_at", end.toISOString())
     .order("created_at", { ascending: false });
 
   if (!transactions) return null;
 
-  // Hitung ringkasan
   const totalPenjualan = transactions.reduce(
     (sum, t) => sum + t.total_price,
     0,
@@ -44,7 +72,6 @@ export async function getLaporanHarian(tanggal?: string) {
     .filter((t) => t.payment_method === "utang")
     .reduce((sum, t) => sum + t.total_price, 0);
 
-  // Produk terlaris
   const productSales: Record<
     string,
     { name: string; qty: number; total: number }
@@ -68,7 +95,9 @@ export async function getLaporanHarian(tanggal?: string) {
     .slice(0, 5);
 
   return {
-    tanggal: targetDate.toISOString(),
+    periode,
+    tanggal: start.toISOString(),
+    tanggalAkhir: end.toISOString(),
     totalPenjualan,
     jumlahTransaksi,
     totalTunai,
@@ -86,9 +115,8 @@ export async function getLaporanMingguan() {
   if (!user) return [];
 
   const admin = createAdminClient();
-
-  // 7 hari terakhir
   const days = [];
+
   for (let i = 6; i >= 0; i--) {
     const date = new Date();
     date.setDate(date.getDate() - i);
