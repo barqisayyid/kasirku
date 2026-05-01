@@ -86,12 +86,12 @@ export default async function LaporanPage() {
         <WeeklyChart data={mingguan} />
       </div>
 
-      {/* Export Buttons — hanya tampil jika ada data laporan */}
+      {/* Export Buttons — hanya tampil kalau ada transaksi */}
       <ExportButtons laporan={laporan} />
 
       {/* Produk Terlaris */}
       {laporan?.produkTerlaris && laporan.produkTerlaris.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 mt-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
           <p className="text-sm font-bold text-gray-800 mb-3">
             Top Produk Hari Ini
           </p>
@@ -126,7 +126,7 @@ export default async function LaporanPage() {
       )}
 
       {/* Daftar Transaksi */}
-      <div className="mt-4">
+      <div>
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-sm font-bold text-gray-800">
             Transaksi Hari Ini
